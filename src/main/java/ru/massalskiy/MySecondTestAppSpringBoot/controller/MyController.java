@@ -13,25 +13,29 @@ import org.springframework.web.bind.annotation.RestController;
 import ru.massalskiy.MySecondTestAppSpringBoot.exception.UnsupportedCodeException;
 import ru.massalskiy.MySecondTestAppSpringBoot.exception.ValidationFailedException;
 import ru.massalskiy.MySecondTestAppSpringBoot.model.*;
+import ru.massalskiy.MySecondTestAppSpringBoot.service.AnnualBonusService;
 import ru.massalskiy.MySecondTestAppSpringBoot.service.ModifyRequestService;
 import ru.massalskiy.MySecondTestAppSpringBoot.service.ModifyResponseService;
 import ru.massalskiy.MySecondTestAppSpringBoot.service.ValidationService;
-
-
+import ru.massalskiy.MySecondTestAppSpringBoot.util.DateTimeUtil;
+import java.util.Date;
 @Slf4j
 @RestController
 public class MyController {
-
     private final ModifyResponseService modifyResponseService;
-    private final ValidationService validationService;
     private final ModifyRequestService modifyRequestService;
+    private final ValidationService validationService;
+    private final AnnualBonusService annualBonusService;
 
     @Autowired
     public MyController(@Qualifier("ModifySystemTimeResponseService") ModifyResponseService modifyResponseService,
-                        ValidationService validationService, ModifyRequestService modifyRequestService) {
+                        ModifyRequestService modifyRequestService,
+                        ValidationService validationService,
+                        AnnualBonusService annualBonusService) {
         this.modifyResponseService = modifyResponseService;
-        this.validationService = validationService;
         this.modifyRequestService = modifyRequestService;
+        this.validationService = validationService;
+        this.annualBonusService = annualBonusService;
     }
 
     @PostMapping(value = "/feedback")
@@ -39,13 +43,17 @@ public class MyController {
 
         log.info("request: {}", request);
 
-        Response response = Response.builder()
+        var responseBuilder = Response.builder()
                 .uid(request.getUid())
                 .operationUid(request.getOperationUid())
+                .systemTime(DateTimeUtil.getCustomFormat().format(new Date()))
                 .code(Codes.SUCCESS)
                 .errorCode(ErrorCodes.EMPTY)
-                .errorMessage(ErrorMessages.EMPTY)
-                .build();
+                .errorMessage(ErrorMessages.EMPTY);
+        if (request.getPosition() != null && request.getSalary() != null && request.getBonus() != null && request.getWorkDays() != null) {
+            responseBuilder.annualBonus(annualBonusService.calculate(request.getPosition(), request.getSalary(), request.getBonus(), request.getWorkDays()));
+        }
+        var response = responseBuilder.build();
 
         log.info("response: {}", response);
 
@@ -54,19 +62,19 @@ public class MyController {
             validationService.isCodeValid(request);
             validationService.isValid(bindingResult);
         } catch (UnsupportedCodeException e) {
-            log.error("error: {}", e.toString());
+            log.error("unsupportedError: {}", e.toString());
             response.setCode(Codes.FAILED);
             response.setErrorCode(ErrorCodes.UNSUPPORTED_EXCEPTION);
             response.setErrorMessage(ErrorMessages.UNSUPPORTED);
             status = HttpStatus.BAD_REQUEST;
         } catch (ValidationFailedException e) {
-            log.error("error: {}", e.toString());
+            log.error("validationError: {}", e.toString());
             response.setCode(Codes.FAILED);
             response.setErrorCode(ErrorCodes.VALIDATION_EXCEPTION);
             response.setErrorMessage(ErrorMessages.VALIDATION);
             status = HttpStatus.BAD_REQUEST;
         } catch (Exception e) {
-            log.error("error: {}", e.toString());
+            log.error("unknownError: {}", e.toString());
             response.setCode(Codes.FAILED);
             response.setErrorCode(ErrorCodes.UNKNOWN_EXCEPTION);
             response.setErrorMessage(ErrorMessages.UNKNOWN);
@@ -76,6 +84,6 @@ public class MyController {
         modifyRequestService.modify(request);
 
         log.info("response: {}", response);
-        return new ResponseEntity<>(modifyResponseService.modify(response), status);
+        return new ResponseEntity<>(response, status);
     }
 }
